@@ -149,6 +149,23 @@ kbd{font:600 .72rem/1 var(--mono);background:var(--raise);border:1px solid var(-
 .faults p{font-size:.78rem;color:#d4d1ca;margin:2px 0 0}
 .faults small{font:700 .66rem/1.2 var(--mono);color:var(--muted)}
 .clean{color:var(--ok);font-weight:700}
+
+.hud.demo .zone,.hud.demo .wheelGlyph,.hud.demo .steerHint,.hud.demo .look,.hud.demo .pedals{display:none}
+.hud.demo .ind{pointer-events:none}
+.tag{align-self:center;font:700 .62rem/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink);background:var(--amber);border-radius:6px;padding:5px 7px;pointer-events:none}
+.hud:not(.demo) .tag{display:none}
+.cue{position:absolute;left:50%;bottom:calc(var(--sb) + 56px);transform:translateX(-50%);width:min(590px,calc(100% - var(--sl) - var(--sr)));
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;background:rgba(12,15,17,.93);
+  border:1px solid var(--line);border-top:3px solid var(--amber);border-radius:14px;padding:9px 10px 10px 14px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.cue[hidden]{display:none}
+.cue .eyebrow{font-size:.6rem}
+.cue b{display:block;font-size:1.06rem;line-height:1.2;margin-top:2px;text-wrap:balance}
+.cue .say{margin:3px 0 0;font-size:.86rem;line-height:1.36;color:#ddd9d1}
+.cueAct{display:grid;gap:6px}
+.cueGo{position:relative;overflow:hidden;min-height:54px;font-size:1rem;padding:10px 18px;white-space:nowrap}
+.cueGo i{position:absolute;left:0;bottom:0;height:4px;width:0;background:rgba(17,20,23,.45)}
+.cueAuto{background:transparent;border:1px solid var(--rule);border-radius:999px;min-height:30px;font:700 .7rem/1 var(--mono);letter-spacing:.06em;color:var(--muted)}
+.cueAuto[aria-pressed="true"]{border-color:var(--amber);color:var(--amber)}
 </style>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -168,6 +185,7 @@ kbd{font:600 .72rem/1 var(--mono);background:var(--raise);border:1px solid var(-
     <div class="zone lookzone" id="lookZone"></div>
     <div class="nav" id="nav" aria-live="polite"><div class="navIcon" id="navIcon"></div><div class="navTxt"><b id="navDist"></b><span id="navText"></span><small id="navHint"></small><em id="navRoad"></em></div></div>
     <div class="topR">
+      <span class="tag">Demonstração</span>
       <div class="clock"><b id="clockT">Ter 10:30</b><span id="busState">BUS LANES ATIVAS</span></div>
       <button class="chip" id="btnCam" aria-label="Mudar câmara">Atrás</button>
       <button class="chip" id="btnPause" aria-label="Pausa">II</button>
@@ -187,6 +205,10 @@ kbd{font:600 .72rem/1 var(--mono);background:var(--raise);border:1px solid var(-
       <button class="gear" id="gear" aria-label="Mudar entre D e R"><b>D</b> · R</button>
       <button class="pedal brake" id="brake" aria-label="Travão">Travão</button>
       <button class="pedal accel" id="accel" aria-label="Acelerador">Acel.</button>
+    </div>
+    <div class="cue" id="cue" role="dialog" aria-live="polite" hidden>
+      <div><p class="eyebrow" id="cueStep"></p><b id="cueTitle"></b><p class="say" id="cueSay"></p></div>
+      <div class="cueAct"><button class="btn primary cueGo" id="cueGo">Continuar ▶<i id="cueBar"></i></button><button class="cueAuto" id="cueAuto" aria-pressed="false">AUTO</button></div>
     </div>
   </div>
 
@@ -217,6 +239,7 @@ kbd{font:600 .72rem/1 var(--mono);background:var(--raise);border:1px solid var(-
         <button class="btn primary" id="resume">Continuar</button>
         <button class="btn" id="restart">Recomeçar</button>
         <button class="btn" id="finishFree" hidden>Terminar e ver relatório</button>
+        <button class="btn" id="exitDemo" hidden>Sair da demonstração</button>
         <button class="btn" id="toMenu">Menu</button>
       </div>
       <label class="toggle"><input type="checkbox" id="mirrorsOpt2" checked> Espelhos em tempo real</label>
@@ -308,11 +331,11 @@ const KINDS={
     say:()=>({text:"segue a curva",hint:"mantém-te à esquerda"})},
   giveWay:{
     zone:n=>n.maxHalf+2.5, surf:n=>n.maxHalf*1.35, line:(n,a)=>a.minor?"giveWay":null, ringR:null, patience:5,
-    hold:(n,a,ag)=>a.minor&&trafficOnMajor(n,ag), needs:turnNeeds,
+    hold:(n,a,ag)=>a.minor?trafficOnMajor(n,ag):turnOf(a,ag.outArm)==="right"&&oncoming(n,a,ag), needs:turnNeeds,
     say:(n,i,o)=>({text:TURN_TXT[turnOf(i,o)],hint:i.minor?"cede a passagem · olha primeiro à DIREITA":"tens prioridade"})},
   lights:{
     zone:n=>n.maxHalf+3.5, surf:n=>n.maxHalf*1.3, line:()=>"stop", ringR:null, patience:Infinity,
-    hold:(n,a,ag,d)=>{const p=phaseOf(n,a);return p!=="G"&&!(p==="A"&&d<10);}, needs:turnNeeds,
+    hold:(n,a,ag,d)=>{const p=phaseOf(n,a);return p!=="G"&&!(p==="A"&&d<stopDist(ag.speed))||!!n.box&&boxExitBlocked(n,ag.outArm,ag)||turnOf(a,ag.outArm)==="right"&&oncoming(n,a,ag);}, needs:turnNeeds,
     say:(n,i,o)=>({text:TURN_TXT[turnOf(i,o)],hint:"semáforo"+(n.box?" · não pares na caixa amarela":"")})},
   mini:{
     zone:n=>n.maxHalf+4, surf:n=>n.maxHalf+4, line:()=>"giveWay", ringR:()=>3.6, dot:1.3, patience:4,
@@ -371,35 +394,129 @@ const MISSIONS=[
   {id:"m1",title:"Manter a esquerda",sub:"Rua calma, 20 mph",
    brief:"Sentas-te à direita: a linha do meio fica junto ao teu ombro direito. Segue a navegação até ao fim de Chalcot Road sem passares para a metade direita da estrada, nem na curva.",
    focus:["wrongSide","speeding","pavement"],start:{road:"c0b",dir:"back",t:0.7,lane:0},route:["W","NW","N1"],
-   ambient:{cars:5,buses:0,cyclists:1,peds:6}},
+   ambient:{cars:5,buses:0,cyclists:1,peds:6},
+   demo:[
+     {at:{start:true},title:"Ombro direito junto à linha do meio",
+      say:"Vais sentado à direita e circulas pela esquerda. A linha do meio fica junto ao teu ombro direito: é o espelho de Portugal."},
+     {at:{node:"W",d:30},title:"Cruzamento: tens prioridade",
+      say:"As linhas Give Way estão na Euston Road, à tua direita: quem sai de lá cede-te a passagem. Segues em frente, sem pisca."},
+     {at:{node:"NW",d:22},title:"Curva à direita: por fora",
+      say:"Aqui a curva à direita faz-se por fora, na tua faixa da esquerda. Não cortes a curva: a parte de dentro é de quem vem ao contrário."},
+     {at:{node:"N1",d:80},title:"20 mph são 32 km/h",
+      say:"Os limites estão em milhas e em Londres o normal é 20 mph. No velocímetro, o número grande é mph; os km/h estão em pequeno."},
+     {at:{node:"N1",d:30},look:"L",title:"O passeio fica do lado que vês pior",
+      say:"Com volante à direita tende-se a encostar demasiado à esquerda. Mantém-te no meio da tua faixa, sem tocar no passeio."},
+   ]},
   {id:"m2",title:"Virar à direita num T",sub:"Give Way, a viragem que corta o trânsito",
    brief:"No fim de Baker Street há linhas Give Way. Paras se for preciso e olhas primeiro à DIREITA, de onde vem o trânsito mais próximo. Virar à direita é a viragem longa, que em Portugal seria a da esquerda: pisca direito e acaba na faixa da ESQUERDA.",
    focus:["signal","wrongSide","collision"],start:{road:"c1a",dir:"back",t:0.55,lane:0},route:["N1","N2"],
-   ambient:{cars:8,buses:0,cyclists:1,peds:4}},
+   ambient:{cars:8,buses:0,cyclists:1,peds:4},
+   demo:[
+     {at:{start:true},title:"Virar à direita num T",
+      say:"No fim de Baker Street há linhas Give Way. Virar à direita é aqui a viragem longa, a que corta o trânsito: em Portugal seria a da esquerda."},
+     {at:{node:"N1",d:30},title:"Pisca direito antes da linha",
+      say:"O pisca direito liga-se com antecedência, para quem está no cruzamento saber o que vais fazer."},
+     {at:{node:"N1",d:4},look:"R",title:"Olha primeiro à DIREITA",
+      say:"O trânsito mais perto vem da direita, ao contrário de Portugal. Se vier alguém, esperas na linha."},
+     {at:{node:"N1",d:4},look:"L",title:"Depois à esquerda",
+      say:"Vais atravessar a faixa de quem vem da direita e entrar na de quem vem da esquerda. Só sais com os dois lados livres."},
+     {at:{node:"N2",d:100},title:"Acabas na faixa da ESQUERDA",
+      say:"Viraste largo e entraste do lado esquerdo da Chalcot Road. O pisca desligou-se sozinho no fim da viragem."},
+   ]},
   {id:"m3",title:"Mini-rotunda",sub:"O círculo branco pintado",
    brief:"O círculo branco no chão é uma rotunda. Cedes a quem vem da DIREITA e contornas o círculo no sentido dos ponteiros do relógio, sem lhe passar por cima. Vais virar à direita: pisca direito.",
    focus:["roundabout","signal"],start:{road:"r0b",dir:"fwd",t:0.3,lane:0},route:["N2","CR"],
-   ambient:{cars:7,buses:0,cyclists:1,peds:4}},
+   ambient:{cars:7,buses:0,cyclists:1,peds:4},
+   demo:[
+     {at:{start:true},title:"Mini-rotunda à frente",
+      say:"O círculo branco pintado no chão é uma rotunda. Avisa-te a placa azul redonda com três setas brancas em círculo."},
+     {at:{node:"N2",d:30},title:"Pisca direito",
+      say:"Vais virar à direita na mini-rotunda: pisca direito na aproximação."},
+     {at:{node:"N2",d:4},look:"R",title:"Cede a quem vem da DIREITA",
+      say:"Tem prioridade quem vem da direita. Em Portugal é ao contrário: na rotunda cedes a quem já circula, que vem da esquerda."},
+     {at:{inNode:"N2"},title:"Contorna o círculo pela esquerda",
+      say:"Rodas no sentido dos ponteiros do relógio, sem passar por cima do círculo. Rodar ao contrário é falta grave."},
+     {at:{node:"CR",d:88},title:"Sais encostado à esquerda",
+      say:"Ao endireitar ficas logo do lado esquerdo da Camden Street, e o pisca desliga-se."},
+   ]},
   {id:"m4",title:"Rotunda: 3.ª saída",sub:"Virar à direita numa rotunda grande",
    brief:"Para a 3.ª saída: faixa da DIREITA e pisca direito na aproximação. Cedes a quem vem da direita e rodas no sentido horário. Depois de passares a 2.ª saída, pisca ESQUERDO e sais para a faixa da esquerda.",
    focus:["roundabout","signal","wrongSide"],start:{road:"main2",dir:"fwd",t:0.3,lane:0},route:["CR","S2"],
-   ambient:{cars:10,buses:1,cyclists:1,peds:4}},
+   ambient:{cars:10,buses:1,cyclists:1,peds:4},
+   demo:[
+     {at:{start:true},title:"3.ª saída: faixa da DIREITA",
+      say:"Para virar à direita numa rotunda grande vais na faixa da direita. As setas pintadas no chão confirmam a faixa."},
+     {at:{node:"CR",d:35},title:"Pisca direito na aproximação",
+      say:"O pisca direito avisa quem já está na rotunda de que vais dar a volta longa. Abranda e prepara-te para ceder."},
+     {at:{node:"CR",d:4},look:"R",title:"Cede a quem vem da DIREITA",
+      say:"Roda-se no sentido dos ponteiros do relógio, por isso o trânsito vem da tua direita. Entras quando houver espaço desse lado."},
+     {at:{inNode:"CR",exitBefore:true},look:"L",title:"Passaste a 2.ª saída: pisca ESQUERDO",
+      say:"Troca para o pisca esquerdo. Espelho esquerdo e ombro: vais sair da faixa de dentro e atravessar a de fora."},
+     {at:{node:"S2",d:80},title:"Saíste na faixa da esquerda",
+      say:"Já na Camden Street, encostado à esquerda. O pisca desligou-se no fim da viragem."},
+   ]},
   {id:"m5",title:"Semáforos e caixa amarela",sub:"Vermelho + amarelo, yellow box",
    brief:"O ciclo britânico tem um passo a mais: vermelho e amarelo acendem juntos antes do verde. Continua parado até ao verde. Depois atravessas uma caixa amarela: só entras se a saída estiver livre.",
    focus:["redLight","yellowBox"],start:{road:"c1a",dir:"fwd",t:0.3,lane:0},route:["CL","S1"],
-   ambient:{cars:10,buses:1,cyclists:1,peds:4}},
+   ambient:{cars:10,buses:1,cyclists:1,peds:4},
+   demo:[
+     {at:{start:true},title:"Semáforos à frente",
+      say:"O ciclo britânico tem um passo a mais: depois do vermelho acendem vermelho e amarelo juntos, e só depois o verde."},
+     {at:{node:"CL",d:20,phase:"R",stopped:true},title:"Vermelho: paras na linha",
+      say:"Paras antes da linha branca larga. No cruzamento está pintada a caixa amarela, com riscas cruzadas."},
+     {at:{node:"CL",phase:"RA"},title:"Vermelho + amarelo: continuas parado",
+      say:"Não existe em Portugal e não quer dizer avança. Arrancar agora é passar no vermelho: £100 e 3 pontos."},
+     {at:{node:"CL",phase:"G"},title:"Verde: olha para a saída",
+      say:"Só entras na caixa amarela se tiveres espaço para sair do outro lado. Parar lá dentro custa £160."},
+     {at:{node:"S1",d:40},title:"Caixa atravessada sem parar",
+      say:"A única exceção é ficar na caixa à espera de virar à direita, por causa do trânsito que vem de frente."},
+   ]},
   {id:"m6",title:"Passadeira zebra",sub:"Belisha beacons e zigue-zagues",
    brief:"Em Delancey Street há uma zebra com postes de globo amarelo a piscar. Se houver um peão à espera, paras antes da linha e deixas passar. Nos zigue-zagues não se ultrapassa nem se estaciona.",
    focus:["zebra","speeding"],start:{road:"r2a",dir:"fwd",t:0.4,lane:0},route:["S1","S2"],
-   ambient:{cars:5,buses:0,cyclists:1,peds:6}},
+   ambient:{cars:5,buses:0,cyclists:1,peds:6},
+   demo:[
+     {at:{start:true},title:"Passadeira zebra à frente",
+      say:"Os postes às riscas com globo amarelo a piscar são os Belisha beacons: marcam uma passadeira zebra."},
+     {at:{zebra:true,d:22},title:"Zigue-zagues: não ultrapassas",
+      say:"Nas linhas em zigue-zague antes da zebra não se ultrapassa nem se estaciona. Abranda e vê os dois passeios."},
+     {at:{zebra:true,d:30,ped:"waiting"},title:"Peão na zebra: paras",
+      say:"Alguém vai atravessar: paras antes da linha tracejada e deixas passar. Passar sem parar custa £100 e 3 pontos."},
+     {at:{zebra:true,d:25,ped:"clear",stopped:true},title:"Zebra livre: segues",
+      say:"O peão chegou ao outro passeio. Só agora arrancas, devagar."},
+   ]},
   {id:"m7",title:"Avenida: BUS e red route",sub:"Euston Road, 30 mph",
    brief:"Euston Road tem 30 mph, duas faixas por sentido e linhas vermelhas duplas: é uma red route, onde não podes parar. Depois da rotunda, a faixa da esquerda é BUS das 7h às 19h; são 10:30, fica na da direita. Repara no sinal da Congestion Charge.",
    focus:["busLane","redRoute","speeding"],start:{road:"main1",dir:"fwd",t:0.15,lane:1},route:["CL","CR","E"],
-   ambient:{cars:12,buses:2,cyclists:2,peds:4}},
+   ambient:{cars:12,buses:2,cyclists:2,peds:4},
+   demo:[
+     {at:{start:true},title:"Euston Road: red route",
+      say:"Linhas vermelhas duplas junto ao passeio: aqui não podes parar, nem um minuto. Só no trânsito ou no semáforo. Multa: £160."},
+     {at:{node:"CL",d:80},title:"Congestion Charge",
+      say:"O C vermelho marca a zona da taxa, seg–sex 7h–18h. Pagas no site da TfL: £18 no próprio dia, £21 até à meia-noite do 3.º dia seguinte."},
+     {at:{node:"CL",d:50},title:"30 mph são 48 km/h",
+      say:"Avenida com duas faixas por sentido. Segues na da esquerda, abaixo das 30 mph."},
+     {at:{node:"CR",d:35},title:"Rotunda: em frente é a 2.ª saída",
+      say:"Faixa da esquerda e sem pisca na aproximação. Cedes a quem vem da direita."},
+     {at:{inNode:"CR",exitBefore:true},look:"L",title:"Pisca esquerdo para sair",
+      say:"Passaste a 1.ª saída: pisca esquerdo e espelho esquerdo antes de saíres da rotunda."},
+     {at:{node:"E",d:90},title:"Faixa BUS: ficas na da direita",
+      say:"A faixa da esquerda é BUS, Mon–Sat 7am–7pm, e são 10:30. A câmara multa o carro em £160 e a rent-a-car cobra-te depois."},
+   ]},
   {id:"m8",title:"Sentido único",sub:"Pratt Street e Delancey Street",
    brief:"Duas ruas de sentido único com duas faixas: podes usar qualquer uma. No fim há sinais No Entry virados para quem viria ao contrário. Quando voltares a uma rua de dois sentidos, encosta logo à esquerda.",
    focus:["wrongWay","wrongSide","zebra"],start:{road:"c3a",dir:"fwd",t:0.3,lane:0},route:["E","SE","S2","S1"],
-   ambient:{cars:7,buses:0,cyclists:1,peds:6}},
+   ambient:{cars:7,buses:0,cyclists:1,peds:6},
+   demo:[
+     {at:{start:true},title:"Sentido único à frente",
+      say:"Depois do cruzamento, Pratt Street é sentido único. Os sinais No Entry, círculo vermelho com barra branca, são iguais aos portugueses."},
+     {at:{node:"SE",d:90},title:"As duas faixas são tuas",
+      say:"Num sentido único podes usar qualquer faixa. Escolhe cedo a da saída: esquerda para virar à esquerda, direita para virar à direita."},
+     {at:{node:"S2",d:25},title:"De volta aos dois sentidos",
+      say:"Depois deste cruzamento a Delancey Street tem dois sentidos: encostas logo à esquerda, ombro direito junto à linha do meio."},
+     {at:{zebra:true,d:30,ped:"waiting"},title:"Zebra: alguém vai atravessar",
+      say:"Paras antes da linha tracejada e deixas atravessar. O globo amarelo a piscar marca a passadeira."},
+   ]},
 ];
 const FREE={id:"free",title:"Condução livre",sub:"Destinos ao acaso, trânsito completo",
   brief:"Trânsito completo e todas as regras ativas. A navegação dá-te um destino de cada vez; quando chegares, aparece outro. Termina na pausa para veres o relatório.",
@@ -498,6 +615,13 @@ function validate(){
       if(!rr||!legal(rr,m.route[i]))fail(`${m.id}: ${m.route[i]}→${m.route[i+1]} não é legal`);
     }
     for(const f of m.focus)if(!RULE_BY[f])fail(`${m.id}: regra ${f}`);
+    for(const c of m.demo||[]){
+      for(const k of Object.keys(c.at))if(!TRIG[k]&&k!=="d")fail(`${m.id}: gatilho ${k}`);
+      const id=c.at.node||c.at.inNode;if(id&&!m.route.includes(id))fail(`${m.id}: ${id} fora da rota`);
+      if(c.look&&!LOOK[c.look])fail(`${m.id}: olhar ${c.look}`);
+      if("ped" in c.at&&c.at.ped!=="waiting"&&c.at.ped!=="clear")fail(`${m.id}: ped ${c.at.ped}`);
+      if(!c.title||!c.say)fail(`${m.id}: deixa sem texto`);
+    }
   }
 }
 
@@ -937,7 +1061,7 @@ function makePed(){
 }
 const CAR_COLS=[0x2f5d8a,0x8c8f93,0x6b2730,0x2a2d31,0xd6d3cc,0x3f6b4f,0x9a6a2e,0xeeeeea,0x5f6a75];
 
-let simT=0,app="menu",view="cockpit",mission=null,mirrorsOn=store.get("ldn3d.mirrors",true);
+let simT=0,uiT=0,app="menu",view="cockpit",mission=null,demo=null,mirrorsOn=store.get("ldn3d.mirrors",true);
 const P={x:-1000,z:-1000,h:0,v:0,steer:0,gear:1,ind:null,node:null,inArm:null,saw:{L:false,R:false},limit:20,
   hit:null,apprPhase:null,amberCouldStop:false,zRoad:null,zSide:0,ccShown:false,headYaw:0};
 const PV={x:P.x,z:P.z,vx:0,vz:0,speed:0,w:0.92,l:2.15,player:true};
@@ -959,6 +1083,24 @@ function anyoneInside(n,ag){
   for(const v of VEH){if(v!==ag&&Math.hypot(v.x-n.x,v.z-n.z)<n.zone-0.3)return true;}
   return false;
 }
+/* A right turn crosses the oncoming lanes: anyone moving towards the junction from the opposite arm, or still in it from that side. */
+function oncoming(n,a,ag){
+  for(const v of VEH){
+    if(v===ag||v.speed<1)continue;
+    const dx=v.x-n.x,dz=v.z-n.z,d=Math.hypot(dx,dz);
+    if(d<n.zone+35&&-(dx*a.ox+dz*a.oz)>0.7*d&&dx*v.vx+dz*v.vz<0)return true;
+  }
+  return false;
+}
+/* Slow traffic in the outgoing half of the exit arm, from the box to one car length past the junction. */
+function boxExitBlocked(n,o,ag){
+  for(const v of VEH){
+    if(v===ag||v.speed>3)continue;
+    const dx=v.x-n.x,dz=v.z-n.z,along=dx*o.ox+dz*o.oz,lat=dx*o.oz-dz*o.ox;
+    if(along>0&&along<n.zone+9&&lat<o.road.half+0.5&&lat>(o.road.oneWay?-o.road.half:0))return true;
+  }
+  return false;
+}
 function ringTrafficFromRight(n,a,ag){
   for(const v of VEH){
     if(v===ag)continue;
@@ -977,6 +1119,8 @@ const AGENT_KINDS={
 };
 function poly(pts){const cum=[0];for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+Math.hypot(pts[i].x-pts[i-1].x,pts[i].z-pts[i-1].z));return {pts,cum,total:cum[cum.length-1]};}
 function pickExit(n,inArm,ag){
+  const j=ag.route?ag.route.indexOf(n.id):-1;
+  if(j>=0&&j+1<ag.route.length)return n.armOf[roadBetween(n.id,ag.route[j+1]).id];
   const opts=n.arms.filter(a=>a!==inArm&&a.nOut>0);
   return opts.length?pick(opts):inArm;
 }
@@ -987,8 +1131,9 @@ function chooseLane(ag,r,d){
   const maxK=r.bus&&r.bus.d===d?n-2:n-1;
   const end=d>0?r.B:r.A,in2=end.armOf[r.id],out2=pickExit(end,in2,ag);
   ag.pendingOut=out2;
-  return turnOf(in2,out2)==="right"?0:maxK;
+  return end.kind!=="bend"&&turnOf(in2,out2)==="right"?0:maxK;
 }
+function connSpeed(n,i,o){return n.kind==="roundabout"?7.5:Math.abs(sweepOf(i,o)-Math.PI)<0.35?99:5.5;}
 function enterLink(ag,r,d,k,fromAl){
   const [s0,s1]=linkEnds(r,d),a0=fromAl==null?s0:fromAl,ls=laneS(r,d,k)+d*ag.kerb;
   ag.path=poly([pt(r,a0,ls),pt(r,s1,ls)]);
@@ -1016,7 +1161,7 @@ function enterConn(ag){
   const n=ag.endNode,i=ag.inArm,o=ag.outArm,r2=o.road,d2=o.dOut,k2=chooseLane(ag,r2,d2);
   const P0=ag.path.pts[ag.path.pts.length-1],P2=pt(r2,linkEnds(r2,d2)[0],laneS(r2,d2,k2)+d2*ag.kerb);
   ag.path=poly(connPts(n,i,o,P0,P2));ag.mode="conn";ag.s=0;ag.pi=0;ag.next={r:r2,d:d2,k:k2};
-  const sw=sweepOf(i,o);ag.connV=n.kind==="roundabout"?7.5:Math.abs(sw-Math.PI)<0.35?99:5.5;
+  ag.connV=connSpeed(n,i,o);
 }
 function makeAgent(kind){
   const K=AGENT_KINDS[kind],obj=K.make();scene.add(obj);
@@ -1041,7 +1186,9 @@ function spawnAgent(kind){
   return null;
 }
 function placeObj(o){o.obj.position.set(o.x,0,o.z);o.obj.rotation.y=Math.PI/2-o.h;}
-function stopSpeed(d){return d<=0?0:Math.sqrt(6.4*d);}
+function stopSpeed(d){return d<=0.2?0:Math.sqrt(6.4*d);}
+/* Reaction plus braking distance: decides both whether amber means stop (redLight rule) and whether traffic holds for it. */
+function stopDist(v){return v*0.7+v*v/9;}
 function leaderGap(ag){
   const fx=Math.cos(ag.h),fz=Math.sin(ag.h);let gap=1e9;
   const test=(o)=>{
@@ -1050,43 +1197,47 @@ function leaderGap(ag){
     if(Math.abs(rx*fz-rz*fx)<ag.w+o.w+0.25)gap=Math.min(gap,ahead-ag.l-o.l);
   };
   for(const v of VEH)if(v!==ag)test(v);
-  for(const p of peds)test(p);
+  for(const p of peds)if(Math.abs(p.s)<edgeOf(p.r,p.s>0?1:-1))test(p);
   return gap;
 }
 function zebraAhead(ag){const za=ag.r.zebra*ag.r.len,al=ag.al0+ag.d*ag.s;return (za-al)*ag.d;}
+/* One lane follower for AI traffic and the demo pilot. A `patient` agent (the pilot) never gives up a hold or ghosts through traffic. */
+function driveAgent(ag,dt){
+  let target=Math.min(ag.vmax,ag.r.limit/MPH*ag.drive);
+  if(ag.mode==="lane"){
+    const dEnd=ag.path.total-ag.s,n=ag.endNode,cv=n.K.line(n,ag.inArm)==="giveWay"?2:connSpeed(n,ag.inArm,ag.outArm);
+    target=Math.min(target,Math.sqrt(cv*cv+4*Math.max(0,dEnd)));
+    if(dEnd<30){
+      if(n.K.hold(n,ag.inArm,ag,dEnd)){ag.waitT+=dt;if(ag.patient||ag.waitT<n.K.patience)target=Math.min(target,stopSpeed(dEnd-ag.l-0.3));}
+      else ag.waitT=0;
+    }
+    /* Bonnet stops behind the zebra's give-way line (2.6 m out), unless it can no longer stop before the stripes (1.6 m out).
+       On the stripes it would also keep zebraSafe() from ever letting the pedestrian go. */
+    if(ag.r.zebra!=null){const db=zebraAhead(ag)-ag.l;if(db>1.6+ag.v*ag.v/16&&db<28&&zebraBusy(ag.r,false))target=Math.min(target,stopSpeed(db-3.1));}
+  }else target=Math.min(target,ag.connV);
+  if(ag.ghostT>0)ag.ghostT-=dt;else target=Math.min(target,stopSpeed(leaderGap(ag)-2.2));
+  if(ag.bumpT>0){ag.bumpT-=dt;target=0;}
+  ag.v+=clamp(target-ag.v,-8*dt,2.3*dt);if(ag.v<0)ag.v=0;
+  ag.stuckT=ag.v<0.2?ag.stuckT+dt:0;
+  if(!ag.patient&&ag.stuckT>14&&ag.mode==="conn"){ag.ghostT=2.5;ag.stuckT=0;}
+  ag.s+=ag.v*dt;
+  for(let guard=0;guard<4&&ag.s>=ag.path.total;guard++){
+    const over=ag.s-ag.path.total;
+    if(ag.mode==="lane")enterConn(ag);else enterLink(ag,ag.next.r,ag.next.d,ag.next.k);
+    ag.s=over;
+  }
+  const p=ag.path;let i=ag.pi;
+  while(i<p.pts.length-2&&p.cum[i+1]<ag.s)i++;
+  ag.pi=i;
+  const a=p.pts[i],b=p.pts[i+1]||a,seg=(p.cum[i+1]-p.cum[i])||1,t=clamp((ag.s-p.cum[i])/seg,0,1);
+  ag.x=a.x+(b.x-a.x)*t;ag.z=a.z+(b.z-a.z)*t;
+  if(b!==a)ag.h+=wrapPi(Math.atan2(b.z-a.z,b.x-a.x)-ag.h)*Math.min(1,dt*10);
+  ag.vx=Math.cos(ag.h)*ag.v;ag.vz=Math.sin(ag.h)*ag.v;ag.speed=ag.v;
+  if(ag.obj)placeObj(ag);
+}
 function updateAgents(dt){
   VEH.length=0;VEH.push(PV);for(const a of agents)VEH.push(a);
-  for(const ag of agents){
-    let target=ag.vmax;
-    if(ag.mode==="lane"){
-      target=Math.min(target,ag.r.limit/MPH*ag.drive);
-      const dEnd=ag.path.total-ag.s,n=ag.endNode;
-      if(dEnd<30){
-        if(n.K.hold(n,ag.inArm,ag,dEnd)){ag.waitT+=dt;if(ag.waitT<n.K.patience)target=Math.min(target,stopSpeed(dEnd-1.2));}
-        else ag.waitT=0;
-      }
-      if(ag.r.zebra!=null){const dz=zebraAhead(ag);if(dz>1&&dz<30&&zebraBusy(ag.r,false))target=Math.min(target,stopSpeed(dz-3.4));}
-    }else target=Math.min(target,ag.connV);
-    if(ag.ghostT>0)ag.ghostT-=dt;else target=Math.min(target,stopSpeed(leaderGap(ag)-2.2));
-    if(ag.bumpT>0){ag.bumpT-=dt;target=0;}
-    ag.v+=clamp(target-ag.v,-8*dt,2.3*dt);if(ag.v<0)ag.v=0;
-    ag.stuckT=ag.v<0.2?ag.stuckT+dt:0;
-    if(ag.stuckT>14&&ag.mode==="conn"){ag.ghostT=2.5;ag.stuckT=0;}
-    ag.s+=ag.v*dt;
-    for(let guard=0;guard<4&&ag.s>=ag.path.total;guard++){
-      const over=ag.s-ag.path.total;
-      if(ag.mode==="lane")enterConn(ag);else enterLink(ag,ag.next.r,ag.next.d,ag.next.k);
-      ag.s=over;
-    }
-    const p=ag.path;let i=ag.pi;
-    while(i<p.pts.length-2&&p.cum[i+1]<ag.s)i++;
-    ag.pi=i;
-    const a=p.pts[i],b=p.pts[i+1]||a,seg=(p.cum[i+1]-p.cum[i])||1,t=clamp((ag.s-p.cum[i])/seg,0,1);
-    ag.x=a.x+(b.x-a.x)*t;ag.z=a.z+(b.z-a.z)*t;
-    if(b!==a)ag.h+=wrapPi(Math.atan2(b.z-a.z,b.x-a.x)-ag.h)*Math.min(1,dt*10);
-    ag.vx=Math.cos(ag.h)*ag.v;ag.vz=Math.sin(ag.h)*ag.v;ag.speed=ag.v;
-    placeObj(ag);
-  }
+  for(const ag of agents)driveAgent(ag,dt);
   if(app==="drive")for(let i=agents.length-1;i>=0;i--){
     const ag=agents[i];
     if(ag.stuckT>25&&Math.hypot(ag.x-P.x,ag.z-P.z)>60){scene.remove(ag.obj);agents.splice(i,1);spawnAgent(ag.kind);}
@@ -1105,13 +1256,15 @@ function vehicleApproaching(r,za,R){
 function zebraSafe(r,za){
   for(const v of VEH){
     const q=vehicleOnRoad(v,r);if(!q)continue;
-    if(Math.abs(q.al-za)<3.5)return false;
-    if(Math.abs(q.al-za)<22&&(za-q.al)*q.va>0&&v.speed>2.5)return false;
+    if(Math.abs(q.al-za)<v.l+1.4)return false;
+    if(Math.abs(q.al-za)<22&&(za-q.al)*q.va>0&&(v.speed>2.5||Math.abs(q.al-za)<10&&v.speed>0.3))return false;
   }
   return true;
 }
+/* Drivers react to anyone heading for, waiting at or on the crossing; the zebra rule (strict) only to someone waiting over 1 s or crossing. */
+function zebraWaiting(r){return peds.some(p=>p.zebra&&p.r===r&&(p.phase==="toKerb"||p.phase==="wait"));}
 function zebraBusy(r,strict){
-  for(const p of peds)if(p.zebra&&p.r===r&&(p.phase==="cross"||(p.phase==="wait"&&(!strict||p.waitT>1))))return true;
+  for(const p of peds)if(p.zebra&&p.r===r&&(p.phase==="cross"||(p.phase==="wait"&&(!strict||p.waitT>1))||(!strict&&p.phase==="toKerb")))return true;
   return false;
 }
 function spawnPed(zebra){
@@ -1119,7 +1272,7 @@ function spawnPed(zebra){
   if(zebra){
     const side=pick([1,-1]),off=pick([-0.7,0.7]);
     const p={zebra:true,r:zebra.r,za:zebra.za,off,side,phase:"idle",t:2+rnd()*6,waitT:0,al:zebra.za+off+3.5*side,s:0,obj,w:0.35,l:0.35,x:0,z:0,h:0};
-    p.s=side*(edgeOf(p.r,side)+2.2);peds.push(p);posPed(p);return;
+    p.s=side*(edgeOf(p.r,side)+2.2);peds.push(p);posPed(p);return p;
   }
   for(let tries=0;tries<40;tries++){
     const r=pick(ROADS),side=pick([1,-1]),al=r.zoneA+5+rnd()*(r.len-r.zoneA-r.zoneB-10),s=side*(edgeOf(r,side)+PAVE*0.55);
@@ -1330,18 +1483,21 @@ function senseCtx(){
   const lanes=c.dir>0?r.fwd:r.back;
   c.busLane=!!(r.bus&&r.bus.active&&c.inLink&&c.dir===r.bus.d&&lanes>1&&c.s*c.dir>(lanes-1)*LANE_W+0.3&&c.along>r.bus.span[0]&&c.along<r.bus.span[1]);
   c.inBox=!!(n&&n.box&&Math.abs(P.x-n.x)<n.boxHx&&Math.abs(P.z-n.z)<n.boxHz);
-  c.lightAhead=null;
-  if(c.inLink&&c.dir!==0){
-    const end=c.dir>0?r.B:r.A;
-    if(end.kind==="lights"){
-      const ph=phaseOf(end,end.armOf[r.id]),dist=c.dir>0?r.len-r.zoneB-c.along:c.along-r.zoneA;
-      if(P.apprPhase==="G"&&ph==="A")P.amberCouldStop=dist>c.speed*0.7+c.speed*c.speed/9;
-      if(ph==="G")P.amberCouldStop=false;
-      P.apprPhase=ph;c.lightAhead={ph,dist};
-    }else P.apprPhase=null;
+  /* The junction in front of the bonnet, by heading: a car stopped at a line has no travel direction but still faces it. */
+  c.ahead=null;c.lightAhead=null;
+  if(c.inLink){
+    const hd=fx*r.ux+fz*r.uz>0?1:-1,end=hd>0?r.B:r.A;
+    c.ahead={node:end,arm:end.armOf[r.id],dist:hd>0?r.len-r.zoneB-c.along:c.along-r.zoneA};
   }
+  if(c.ahead&&c.ahead.node.kind==="lights"){
+    const {node:end,arm,dist}=c.ahead,ph=phaseOf(end,arm);
+    if(P.apprPhase==="G"&&ph==="A")P.amberCouldStop=dist>stopDist(c.speed);
+    if(ph==="G")P.amberCouldStop=false;
+    P.apprPhase=ph;c.lightAhead={ph,dist};
+  }else if(c.ahead)P.apprPhase=null;
   const gapAhead=leaderGap({x:P.x,z:P.z,h:P.h,w:PV.w,l:PV.l});
-  c.queued=gapAhead<10||!!(c.lightAhead&&c.lightAhead.ph!=="G"&&c.lightAhead.dist<35)||!!(r.zebra!=null&&zebraBusy(r,false));
+  const atLine=!!(c.ahead&&c.ahead.dist<6&&c.ahead.node.K.line(c.ahead.node,c.ahead.arm));
+  c.queued=gapAhead<10||atLine||!!(c.lightAhead&&c.lightAhead.ph!=="G"&&c.lightAhead.dist<35)||!!(r.zebra!=null&&zebraBusy(r,false));
   c.hit=P.hit;P.hit=null;
   c.turn=null;c.stopLine=null;c.zebraPass=null;
   if(n!==P.node){
@@ -1419,6 +1575,7 @@ function navExit(n,out){
   if(app==="drive")toast({kind:"info",title:"A recalcular",why:"Saíste da rota. A navegação encontrou outro caminho.",ref:"",fine:null});
 }
 function arrive(n){
+  if(demo){finishDemo();return;}
   if(mission===FREE){
     toast({kind:"info",title:"Chegaste: "+n.label,why:"Novo destino na navegação.",ref:"",fine:null});
     newFreeDest(n.id);return;
@@ -1483,7 +1640,7 @@ const hudEls={mph:$("#mph"),kmh:$("#kmh"),limit:$("#limit"),indL:$("#indL"),indR
 let lastHud="";
 function updateHUD(dt){
   if(toastTimer>0){toastTimer-=dt;if(toastTimer<=0)nextToast();}
-  const mph=Math.abs(P.v)*MPH,blink=(simT%0.8)<0.45;
+  const mph=Math.abs(P.v)*MPH,blink=(uiT%0.8)<0.45;
   const key=Math.round(mph)+"|"+P.limit+"|"+P.ind+"|"+blink+"|"+P.gear;
   if(key!==lastHud){
     lastHud=key;
@@ -1524,7 +1681,7 @@ function updateCamera(dt){
     camera.position.set(195+190*Math.cos(orbitT),95,130+190*Math.sin(orbitT));camera.lookAt(195,0,130);return;
   }
   player.updateMatrixWorld();
-  const look=input.lookDrag!==null?input.lookDrag:input.lookHold;
+  const look=demo&&demo.state==="cue"?demo.look:input.lookDrag!==null?input.lookDrag:input.lookHold;
   P.headYaw+=(look*1.31-P.headYaw)*Math.min(1,dt*7);
   if(view==="cockpit"){
     camera.position.copy(EYE).applyMatrix4(player.matrixWorld);
@@ -1573,7 +1730,7 @@ function placePlayer(x,z,h,v){
   locate(x,z,LOC);if(!n)P.limit=LOC.road.limit;
   player.position.set(x,0,z);player.rotation.y=Math.PI/2-h;chase.snap=true;
 }
-function startMission(id){
+function startMission(id,opts={}){
   const m=id==="free"?FREE:MISSIONS.find(x=>x.id===id);
   if(!m)throw new Error("Missão desconhecida: "+id);
   mission=m;simT=0;faults=[];toastQ.length=0;toastTimer=0;$("#toast").hidden=true;
@@ -1582,6 +1739,16 @@ function startMission(id){
   input.accel=input.brake=0;input.touchSteer=null;input.keySteer=0;
   const r=ROAD_BY[m.start.road],d=m.start.dir==="fwd"?1:-1,p=pt(r,m.start.t*r.len,laneS(r,d,m.start.lane));
   placePlayer(p.x,p.z,Math.atan2(d*r.uz,d*r.ux),0);
+  demo=opts.demo&&m.demo?{m,cues:m.demo,next:0,state:"drive",cueT:0,look:0,ff:opts.demo.ff||1,
+    auto:opts.demo.auto??store.get("ldn3d.demoAuto",false),opts,log:[]}:null;
+  $("#hud").classList.toggle("demo",!!demo);hideCue();
+  if(demo){
+    setView("cockpit");syncAuto();
+    // The demo teaches the Congestion Charge in a cue; the toast would repeat it.
+    P.ccShown=true;
+    Object.assign(PV,{h:P.h,v:0,vmax:AGENT_KINDS.car.vmax,drive:0.8,kerb:0,patient:true,route:m.route,waitT:0,stuckT:0,bumpT:0,ghostT:0,pendingOut:null});
+    enterLink(PV,r,d,m.start.lane,m.start.t*r.len);
+  }
   clearWorld();VEH.length=0;VEH.push(PV);populate(m.ambient);
   if(m.route){nav.route=m.route.slice();nav.idx=0;}
   else newFreeDest(d>0?r.b:r.a);
@@ -1618,21 +1785,23 @@ function finishMission(arrived){
   show("report");renderMenu();
 }
 function openBrief(m){
-  app="brief";mission=null;player.visible=false;
-  const idx=MISSIONS.indexOf(m),card=$("#briefCard");
+  app="brief";mission=null;demo=null;player.visible=false;
+  const idx=MISSIONS.indexOf(m),card=$("#briefCard"),done=!!(store.get("ldn3d.progress",{})[m.id]||{}).done,demoFirst=!!m.demo&&!done;
+  const go=`<button class="btn${demoFirst?"":" primary"}" id="go">Conduzir</button>`,see=m.demo?`<button class="btn${demoFirst?" primary":""}" id="see">Ver demonstração</button>`:"";
   card.innerHTML=`<p class="eyebrow">${idx>=0?`Missão ${idx+1} de ${MISSIONS.length}`:"Condução livre"}</p><h2></h2><p class="b"></p>
     <div class="chips"></div><p class="muted dest"></p>
-    <div class="row"><button class="btn primary" id="go">Começar</button><button class="btn" id="back">Menu</button></div>`;
+    <div class="row">${demoFirst?see+go:go+see}<button class="btn" id="back">Menu</button></div>`;
   card.querySelector("h2").textContent=m.title;card.querySelector(".b").textContent=m.brief;
   const chips=card.querySelector(".chips");
   for(const id of m.focus.slice(0,m===FREE?0:6)){const r=RULE_BY[id],s=document.createElement("span");s.className=r.severity;s.textContent=r.title;chips.appendChild(s);}
   card.querySelector(".dest").textContent=m.route?"Destino: "+NODES[m.route[m.route.length-1]].label+" · em destaque o que esta missão treina; todas as regras contam":"Todas as regras contam.";
   card.querySelector("#go").onclick=()=>startMission(m.id);
+  if(m.demo)card.querySelector("#see").onclick=()=>startDemo(m.id);
   card.querySelector("#back").onclick=toMenu;
-  show("brief");setTimeout(()=>card.querySelector("#go").focus({preventScroll:true}),0);
+  show("brief");setTimeout(()=>card.querySelector(".btn.primary").focus({preventScroll:true}),0);
 }
 function toMenu(){
-  app="menu";mission=null;player.visible=false;P.x=P.z=-1000;PV.x=PV.z=-1000;
+  app="menu";mission=null;demo=null;player.visible=false;P.x=P.z=-1000;PV.x=PV.z=-1000;
   clearWorld();populate(FREE.ambient);renderMenu();show("menu");
 }
 function show(id){
@@ -1651,8 +1820,88 @@ function renderMenu(){
   });
 }
 function pause(on){
-  if(on&&app==="drive"){app="pause";$("#pauseTitle").textContent=mission.title;$("#finishFree").hidden=mission!==FREE;show("pause");input.accel=input.brake=0;}
+  if(on&&app==="drive"){app="pause";$("#pauseTitle").textContent=(demo?"Demonstração · ":"")+mission.title;$("#finishFree").hidden=mission!==FREE;$("#exitDemo").hidden=!demo;show("pause");input.accel=input.brake=0;}
   else if(!on&&app==="pause"){app="drive";show("drive");}
+}
+
+/* Demonstration: the pilot drives PV (the player vehicle) with the AI lane follower, its exits forced by the mission route.
+   Cues fire strictly in order; each `at` is an AND of TRIG predicates (`d` is a distance modifier for node/zebra). */
+const LOOK={L:1,R:-1},SIGNAL_D=40,LOOK_T=0.8;
+const TRIG={
+  start:()=>true,
+  node:at=>PV.mode==="lane"&&PV.endNode.id===at.node&&PV.path.total-PV.s<=(at.d??Infinity),
+  phase:at=>PV.mode==="lane"&&PV.endNode.kind==="lights"&&phaseOf(PV.endNode,PV.inArm)===at.phase,
+  stopped:at=>(PV.v<0.3)===at.stopped,
+  inNode:at=>PV.mode==="conn"&&PV.endNode.id===at.inNode,
+  exitBefore:()=>PV.mode==="conn"&&pastExitBefore(PV),
+  zebra:at=>{const dz=PV.mode==="lane"&&PV.r.zebra!=null?zebraAhead(PV):-1;return dz>0&&dz<=at.d;},
+  ped:at=>PV.r.zebra!=null&&(at.ped==="waiting"?zebraWaiting(PV.r):!zebraBusy(PV.r,false)),
+};
+function startDemo(id,opts={}){startMission(id,{demo:opts});}
+function pastExitBefore(ag){
+  const n=ag.endNode,N=n.arms.length,b=n.arms[(ag.outArm.i+N-1)%N];
+  return norm2pi(Math.atan2(ag.z-n.z,ag.x-n.x)-ag.inArm.ang)>norm2pi(b.ang-ag.inArm.ang)+0.35;
+}
+/* KINDS.needs says which lamps the junction wants; this says when. Roundabouts: R on approach for a right turn,
+   L on approach for the 1st exit, and L once past the exit before yours. */
+function pilotInd(ag){
+  const n=ag.endNode,need=n.K.needs(n,ag.inArm,ag.outArm);
+  if(!need||n.id===ag.route[ag.route.length-1])return null;
+  if(ag.mode==="lane"&&ag.path.total-ag.s>SIGNAL_D)return null;
+  if(n.kind!=="roundabout")return need;
+  if(ag.mode==="conn"&&pastExitBefore(ag))return "L";
+  const t=turnOf(ag.inArm,ag.outArm);return t==="right"?"R":t==="left"?"L":null;
+}
+function pilotStep(dt){
+  const h0=PV.h;driveAgent(PV,dt);
+  const rate=dt>0?wrapPi(PV.h-h0)/dt:0;
+  Object.assign(P,{x:PV.x,z:PV.z,h:PV.h,v:PV.v,ind:pilotInd(PV)});
+  P.steer+=(clamp(Math.atan(rate*2.7/Math.max(PV.v,1)),-0.6,0.6)-P.steer)*Math.min(1,dt*8);
+  collide();PV.x=P.x;PV.z=P.z;
+}
+/* A demo is a film: when the next cue needs someone at the zebra and nobody is heading there, send a pedestrian to the kerb. */
+function callPedestrian(){
+  if(!TRIG.zebra({d:45})||zebraWaiting(PV.r))return;
+  const p=peds.find(q=>q.zebra&&q.r===PV.r&&q.phase==="idle")||spawnPed(zebras.find(z=>z.r===PV.r));
+  p.phase="toKerb";
+}
+function demoTick(){
+  const cue=demo.cues[demo.next];
+  if(cue&&cue.at.ped==="waiting")callPedestrian();
+  if(!cue||!Object.keys(cue.at).every(k=>!TRIG[k]||TRIG[k](cue.at)))return;
+  demo.state="cue";demo.cueT=0;demo.look=LOOK[cue.look]||0;
+  demo.log.push({i:demo.next,title:cue.title,look:cue.look||null,maxYaw:0,t:+simT.toFixed(2)});
+  cueEls.step.textContent=`Demonstração · ${demo.next+1} de ${demo.cues.length}`;
+  cueEls.title.textContent=cue.title;cueEls.say.textContent=cue.say;cueEls.bar.style.width="0";
+}
+const readTime=cue=>1.5+(cue.title.length+cue.say.length)/14;
+function cueFrame(dt){
+  const cue=demo.cues[demo.next],entry=demo.log[demo.log.length-1],wait=cue.look?LOOK_T:0;
+  demo.cueT+=dt*demo.ff;
+  entry.maxYaw=Math.max(entry.maxYaw,Math.abs(P.headYaw));
+  if(demo.cueT>=wait)cueEls.box.hidden=false;
+  const p=demo.auto?clamp((demo.cueT-wait)/readTime(cue),0,1):0;
+  cueEls.bar.style.width=(p*100).toFixed(1)+"%";
+  if(p>=1)continueCue();
+}
+function continueCue(){
+  if(!demo||demo.state!=="cue"||app!=="drive")return;
+  demo.next++;demo.state="drive";demo.look=0;hideCue();
+}
+const cueEls={box:$("#cue"),step:$("#cueStep"),title:$("#cueTitle"),say:$("#cueSay"),bar:$("#cueBar"),auto:$("#cueAuto")};
+function hideCue(){cueEls.box.hidden=true;}
+function syncAuto(){cueEls.auto.setAttribute("aria-pressed",String(!!(demo&&demo.auto)));}
+function finishDemo(){
+  app="report";demo.state="done";hideCue();
+  const m=mission,idx=MISSIONS.indexOf(m),n=faults.length,card=$("#reportCard"),opts=demo.opts;
+  card.innerHTML=`<p class="eyebrow">Demonstração · Missão ${idx+1}</p><h2></h2><p class="endTxt${n?"":" clean"}"></p>
+    <div class="row"><button class="btn primary" id="driveNow">Agora conduz tu</button><button class="btn" id="again">Ver outra vez</button><button class="btn" id="menuBtn">Menu</button></div>`;
+  card.querySelector("h2").textContent=m.title;
+  card.querySelector(".endTxt").textContent=n?`${n} falta${n>1?"s":""} registada${n>1?"s":""} pelo avaliador.`:"Zero faltas, com o avaliador ligado do princípio ao fim. Agora é a tua vez: contam as mesmas regras.";
+  card.querySelector("#driveNow").onclick=()=>startMission(m.id);
+  card.querySelector("#again").onclick=()=>startDemo(m.id,opts);
+  card.querySelector("#menuBtn").onclick=toMenu;
+  show("report");setTimeout(()=>card.querySelector("#driveNow").focus({preventScroll:true}),0);
 }
 
 function holdBtn(el,on,off){
@@ -1685,7 +1934,10 @@ $("#gear").addEventListener("click",toggleGear);
 $("#btnCam").addEventListener("click",()=>setView(view==="cockpit"?"chase":"cockpit"));
 $("#btnPause").addEventListener("click",()=>pause(true));
 $("#resume").addEventListener("click",()=>pause(false));
-$("#restart").addEventListener("click",()=>startMission(mission.id));
+$("#restart").addEventListener("click",()=>startMission(mission.id,demo?{demo:demo.opts}:{}));
+$("#exitDemo").addEventListener("click",()=>openBrief(mission));
+$("#cueGo").addEventListener("click",continueCue);
+$("#cueAuto").addEventListener("click",()=>{if(!demo)return;demo.auto=!demo.auto;store.set("ldn3d.demoAuto",demo.auto);syncAuto();});
 $("#toMenu").addEventListener("click",toMenu);
 $("#finishFree").addEventListener("click",()=>finishMission(false));
 $("#mirrorsOpt").addEventListener("change",e=>setMirrorsOn(e.target.checked));
@@ -1699,6 +1951,11 @@ function syncKeys(){
 window.addEventListener("keydown",e=>{
   if(e.code==="Escape"){if(app==="drive")pause(true);else if(app==="pause")pause(false);return;}
   if(app!=="drive")return;
+  if(demo){
+    if(e.code==="Space"||e.code==="Enter"){e.preventDefault();if(!e.repeat)continueCue();}
+    else if(e.code==="KeyC"&&!e.repeat)setView(view==="cockpit"?"chase":"cockpit");
+    return;
+  }
   const k=KEYS[e.code];
   if(k){input.keys[k]=true;e.preventDefault();if(k==="up")input.accel=1;if(k==="down")input.brake=1;syncKeys();}
   if(e.repeat)return;
@@ -1714,22 +1971,24 @@ window.addEventListener("keyup",e=>{
 window.addEventListener("blur",()=>{input.keys={};input.accel=input.brake=0;input.keySteer=0;input.lookHold=0;});
 document.addEventListener("visibilitychange",()=>{if(document.hidden)pause(true);});
 
+const simLive=()=>app==="drive"&&!(demo&&demo.state!=="drive");
+function simStep(dt){
+  simT+=dt;
+  if(demo)pilotStep(dt);else stepPlayer(dt);
+  senseCtx();
+  evalRules(dt);
+  if(demo&&app==="drive")demoTick();
+  updateAgents(dt);updatePeds(dt);
+}
 const perf={frames:0,cpu:[],gap:[]};
 let lastT=performance.now();
 function frame(now){
   requestAnimationFrame(frame);
   const t0=performance.now(),dt=Math.min(0.05,Math.max(0,(now-lastT)/1000));
-  perf.gap.push(now-lastT);lastT=now;frameNo++;
-  if(app==="drive"){
-    simT+=dt;
-    stepPlayer(dt);
-    senseCtx();
-    evalRules(dt);
-  }
-  if(app==="drive"||app==="menu"){
-    if(app==="menu")simT+=dt;
-    updateAgents(dt);updatePeds(dt);
-  }
+  perf.gap.push(now-lastT);lastT=now;frameNo++;uiT+=dt;
+  for(let k=0;k<(demo?demo.ff:1)&&simLive();k++)simStep(dt);
+  if(app==="menu"){simT+=dt;updateAgents(dt);updatePeds(dt);}
+  if(app==="drive"&&demo&&demo.state==="cue")cueFrame(dt);
   if(app==="drive")updateNav();
   player.position.set(P.x,0,P.z);player.rotation.y=Math.PI/2-P.h;
   wheelSpin.rotation.z=P.steer*9;
@@ -1757,10 +2016,14 @@ window.__ldn={
   get mission(){return mission&&{id:mission.id,title:mission.title,app,route:nav.route&&nav.route.slice(),idx:nav.idx};},
   get app(){return app;},
   get traffic(){return agents.map(a=>({kind:a.kind,x:a.x,z:a.z,h:a.h,v:a.v,mode:a.mode,road:a.r.id}));},
+  get zebraPeds(){return peds.filter(p=>p.zebra).map(p=>({phase:p.phase,waitT:+(p.waitT||0).toFixed(2),side:p.side,s:+p.s.toFixed(1)}));},
   get perf(){return {frames:perf.frames,cpuMs:+avg(perf.cpu).toFixed(2),frameGapMs:+avg(perf.gap).toFixed(2),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles};},
   nodes:NODES,roads:ROADS,
+  get demo(){return demo&&{state:demo.state,next:demo.next,total:demo.cues.length,auto:demo.auto,log:demo.log.map(x=>({...x})),cueVisible:!cueEls.box.hidden};},
+  get headYaw(){return P.headYaw;},
   place(x,z,headingRad,speedMs){placePlayer(x,z,headingRad,speedMs||0);},
-  startMission,
+  startMission(id){startMission(id);},
+  startDemo,continueCue,
 };
 })();
 </script>
